@@ -442,6 +442,17 @@ namespace eval ::SimpleTemplater {
         close $fh
     }
 
+    proc applyExtendsTemplate { templatePath templateContent } {
+        set fullText [join $templateContent \n]
+        regexp {{%\s+extends\s+("|')(.+)("|')\s+%}} $fullText -> _ tplname
+	regexp {{%\s+extends\s+("|')(.+)("|')\s+%}} $fullText -> _ tplname
+
+	if { $tplName != "" } {
+	    
+	}
+    }
+	
+
     proc parser { template_var } {
         upvar $template_var template
 
@@ -461,7 +472,6 @@ namespace eval ::SimpleTemplater {
         set call_stack ""
 
         foreach line $template {
-
             if { [regexp "(^\\s*)$functionPattern" $line --> indent function iter operator limiter] } {
                 if { $debug } { puts stderr "function:$function iter:$iter operator:$operator limiter:$limiter" }
                 lappend call_stack $function
@@ -581,6 +591,85 @@ namespace eval ::SimpleTemplater {
         array set object [list]
     }
 
+    # use to render template with extends and include
+    # @param templateDirs list of dirs when is templates files
+    # @param templatePath template relative path/name
+    # @param ctx template args to interpolation
+    proc templateExtends { dir template } {
+
+	upvar $template contents 
+
+	set contents_str [join $contents \n]
+	
+	if { ![regexp -line {{%\s+extends\s+(.+)\s+%}} $contents_str -> tplName ] } {
+	    puts "template does not extends layout"
+	    #return [split $templateContent \n]
+	    return ;#[lsearch -all -inline -not -exact [split $templateContent \n] {}]
+	}
+
+	regsub -line {{%\s+extends\s+(.+)\s+%}} $contents_str {} rc
+
+	set contents_str $rc
+	
+	# apply extends template, replace blocks
+	set extendsFile $dir/$tplName
+
+	if { ![file isfile $extendsFile] } {
+	    return -code error "extends $tplName not found at $dir"
+	}
+
+	set blockRegex {{%\s*?block\s+(\w+)\s*?%}(.*?){%\s*?endblock\s*?%}}
+
+	set extendsContents [join [readTemplate $extendsFile] \n]
+
+	set matches [regexp -line -all -inline $blockRegex $extendsContents]
+	set mainBlocks {}
+	    
+	foreach {_ blockName blockContent} $matches {
+	    lappend mainBlocks $blockName
+	}
+
+	set matches [regexp -all -inline $blockRegex $contents_str ]
+
+	set blocks [dict create]
+	foreach {_ blockName blockContent} $matches {
+	    dict set blocks $blockName $blockContent
+	}
+
+	foreach block $mainBlocks {
+	    if { ![dict exists $blocks $block] } {
+		return -code error \
+		    "block $block from template $tplName not found in template $templateFullPath to apply"
+	    }
+	    
+	    set content [dict get $blocks $block]
+	    regsub $blockRegex $extendsContents $content rc
+	    set extendsContents $rc
+	}
+
+	set includeRegex {{%\s*?include\s+(.*?)\s*?%}}
+	set matches [regexp -all -inline $includeRegex $extendsContents]
+
+	foreach {_ tplName} $matches {
+	    set f $dir/$tplName
+
+	    if { ![file isfile $f] } {
+		return -code error "include file $tplName not found at $dir"
+	    }
+	    
+	    set includeContents [join [readTemplate $f] \n]
+	    regsub $includeRegex $extendsContents $includeContents rc
+	    set extendsContents $rc
+	}
+
+	# remove empty lines
+	set contents [clearEmptyLines [split $extendsContents \n]]
+    }
+
+    proc clearEmptyLines {buff} {
+	lsearch -all -inline -not -exact $buff {}    
+    }
+
     proc render { template obj } {
         variable object
         variable debug
@@ -589,11 +678,18 @@ namespace eval ::SimpleTemplater {
         variable _bufferOut
         variable invalidTemplateLoopString
 
+	if {![file exists $template]} {
+	    return -code error "template $template not found"
+	}
+
+	set contents [readTemplate $template]
+	set dir [file dirname $template]
+	set contents [templateExtends $dir contents]
+
         init
         loadData obj
         # parray object
-        set template [readTemplate $template]
-        set output [parser template]
+        set output [parser contents]
 
         if { $debug } {
             puts stderr $output

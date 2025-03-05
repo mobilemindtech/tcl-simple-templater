@@ -1,0 +1,26 @@
+package require tcltest
+
+source ../SimpleTemplater.tcl
+
+namespace import ::tcltest::*
+
+
+test test_template_main_apply {} -body {
+
+    set curr [exec pwd]
+    set dir $curr/layouts
+    set template index.html
+    set ctx {}
+    
+    set result [::SimpleTemplater::render $dir/$template $ctx]
+
+    puts $result
+
+    return 1
+
+
+} -result 1
+
+
+
+cleanupTests
